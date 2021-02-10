@@ -76,6 +76,10 @@ def sgd_momentum(w, dw, config=None):
   #   as next_w, and the updated velocity as v.
   # ================================================================ #
 
+  alpha = config['momentum']
+  v = alpha*v - config['learning_rate']*dw
+  next_w = w + v
+
   # ================================================================ #
   # END YOUR CODE HERE
   # ================================================================ #
@@ -105,6 +109,13 @@ def sgd_nesterov_momentum(w, dw, config=None):
   #   Implement the momentum update formula.  Return the updated weights
   #   as next_w, and the updated velocity as v.
   # ================================================================ #
+  
+  alpha = config['momentum']
+  v_old = v
+
+  # nesterov momentum calculates the gradient AFTER taking a step along direction of momentum
+  v = alpha*v - config['learning_rate']*dw
+  next_w = w + v + alpha*(v-v_old)
 
   # ================================================================ #
   # END YOUR CODE HERE
@@ -141,7 +152,14 @@ def rmsprop(w, dw, config=None):
   #   moment gradients, so they can be used for future gradients. Concretely,
   #   config['a'] corresponds to "a" in the lecture notes.
   # ================================================================ #
+  nu = config['epsilon']
+  beta = config['decay_rate']
+  a = config['a']
 
+  a = beta*a + (1-beta)*dw*dw
+  next_w  = w - config['learning_rate']/(np.sqrt(a)+nu)*dw
+
+  config['a'] = a
   # ================================================================ #
   # END YOUR CODE HERE
   # ================================================================ #
@@ -181,6 +199,32 @@ def adam(w, dw, config=None):
   #   moment gradients, and in config['v'] the moving average of the
   #   first moments.  Finally, store in config['t'] the increasing time.
   # ================================================================ #
+  # variable definitions
+  v = config['v']
+  a = config['a']
+  nu = config['epsilon']
+  B1 = config['beta1']
+  B2 = config['beta2']
+
+  # time update
+  config['t'] += 1
+  t = config['t']
+
+  # first moment update
+  v = B1*v + (1- B1)*dw
+
+  # second moment update (gradient normalization)
+  a = B2*a + (1- B2)*dw*dw
+
+  # bias correction
+  v_tild = 1/(1-B1**t)*v
+  a_tild = 1/(1-B2**t)*a
+
+  # gradient step
+  next_w = w - config['learning_rate']/(np.sqrt(a_tild)+nu)*v_tild
+
+  config['a'] = a
+  config['v'] = v
 
   # ================================================================ #
   # END YOUR CODE HERE

@@ -57,6 +57,10 @@ class TwoLayerNet(object):
     #   dimensions of W2 should be (hidden_dims, num_classes)
     # ================================================================ #
 
+    self.params['W1'] = weight_scale * np.random.randn(input_dim, hidden_dims)
+    self.params['b1'] = np.zeros(hidden_dims)
+    self.params['W2'] = weight_scale * np.random.randn(hidden_dims, num_classes)
+    self.params['b2'] = np.zeros(num_classes)
 
     # ================================================================ #
     # END YOUR CODE HERE
@@ -90,6 +94,13 @@ class TwoLayerNet(object):
     #   you prior implemented.
     # ================================================================ #    
     
+    # Unpack variables from the params dictionary
+    W1, b1 = self.params['W1'], self.params['b1']
+    W2, b2 = self.params['W2'], self.params['b2']
+
+    h, h_cache = affine_relu_forward(X,W1,b1)
+    scores, z_cache = affine_forward(h,W2,b2)
+
     # ================================================================ #
     # END YOUR CODE HERE
     # ================================================================ #
@@ -113,6 +124,16 @@ class TwoLayerNet(object):
     #
     #   And be sure to use the layers you prior implemented.
     # ================================================================ #    
+    
+    loss, dLdz = softmax_loss(scores,y)
+    loss = loss+0.5*self.reg*(np.sum(W1**2)+np.sum(W2**2))
+    dh, dw2, db2 = affine_backward(dLdz,z_cache)
+    grads['W2'] = dw2 + self.reg*W2
+    grads['b2'] = db2
+
+    dx, dw1, db1 = affine_relu_backward(dh,h_cache)
+    grads['W1'] = dw1 + self.reg*W1
+    grads['b1'] = db1
     
     # ================================================================ #
     # END YOUR CODE HERE
@@ -182,6 +203,35 @@ class FullyConnectedNet(object):
     #   is true and DO NOT do batch normalize the output scores.
     # ================================================================ #
     
+    for i in np.arange(self.num_layers):
+      W_string = 'W' + str(i+1)
+      b_string = 'b' + str(i+1)
+      gam_str = 'gamma' + str(i+1)
+      beta_str = 'beta' + str(i+1)
+
+      #if first layer use input_dim
+      if i == 0:
+        self.params[W_string] = weight_scale * np.random.randn(input_dim, hidden_dims[i])
+        self.params[b_string] = np.zeros(hidden_dims[i])
+
+        if self.use_batchnorm:
+          self.params[gam_str] = np.ones(hidden_dims[i])
+          self.params[beta_str] = np.zeros(hidden_dims[i])
+
+      #if last layer use num_classes
+      elif i == self.num_layers - 1: 
+        self.params[W_string] = weight_scale * np.random.randn(hidden_dims[i-1], num_classes)
+        self.params[b_string] = np.zeros(num_classes)
+      else:
+        self.params[W_string] = weight_scale * np.random.randn(hidden_dims[i-1], hidden_dims[i])
+        self.params[b_string] = np.zeros(hidden_dims[i])
+        
+        if self.use_batchnorm:
+          self.params[gam_str] = np.ones(hidden_dims[i])
+          self.params[beta_str] = np.zeros(hidden_dims[i])
+
+
+    
 
     # ================================================================ #
     # END YOUR CODE HERE
@@ -242,6 +292,50 @@ class FullyConnectedNet(object):
     #   every ReLU layer.
     # ================================================================ #
 
+    h = []
+    h_cache = []
+    d_cache = []
+    for i in np.arange(self.num_layers):
+      W_str = 'W' + str(i+1)
+      b_str = 'b' + str(i+1)
+      gam_str = 'gamma' + str(i+1)
+      beta_str = 'beta' + str(i+1)
+
+      # if first layer
+      if i == 0:
+        if self.use_batchnorm:
+          tmp_h, tmp_h_cache = affine_batchnorm_relu_forward(X, self.params[W_str], self.params[b_str], 
+          self.params[gam_str], self.params[beta_str], self.bn_params[i])
+        else:
+          tmp_h, tmp_h_cache = affine_relu_forward(X,self.params[W_str],self.params[b_str])
+
+        # if want to use dropout after relu layer
+        if self.use_dropout:
+          tmp_h, tmp_d_cache = dropout_forward(tmp_h, self.dropout_param)
+          d_cache.append(tmp_d_cache)
+
+        h.append(tmp_h)
+        h_cache.append(tmp_h_cache)
+
+      # last layer
+      elif i == self.num_layers - 1:
+        scores, z_cache = affine_forward(h[i-1],self.params[W_str],self.params[b_str])
+      
+      # intermediate layers
+      else:
+        if self.use_batchnorm:
+          tmp_h, tmp_h_cache = affine_batchnorm_relu_forward(h[i-1], self.params[W_str], self.params[b_str],
+          self.params[gam_str], self.params[beta_str], self.bn_params[i])
+        else:
+          tmp_h, tmp_h_cache = affine_relu_forward(h[i-1],self.params[W_str],self.params[b_str])
+        
+        # if want to use dropout after relu layer
+        if self.use_dropout:
+          tmp_h, tmp_d_cache = dropout_forward(tmp_h, self.dropout_param)
+          d_cache.append(tmp_d_cache)
+
+        h.append(tmp_h)
+        h_cache.append(tmp_h_cache)
 
     # ================================================================ #
     # END YOUR CODE HERE
@@ -263,6 +357,38 @@ class FullyConnectedNet(object):
     #   DROPOUT: Incorporate the backward pass of dropout.
     # ================================================================ #
 
+    loss, dLdz = softmax_loss(scores,y)
+
+    sqr_sum = 0
+    for i in np.arange(self.num_layers,0,-1):
+      W_str = 'W' + str(i)
+      b_str = 'b' + str(i)
+      gam_str = 'gamma' + str(i)
+      beta_str = 'beta' + str(i)
+
+      sqr_sum += np.sum(self.params[W_str]**2) 
+
+      # first backprop
+      if i == self.num_layers:
+        dhi , dwi, dbi = affine_backward(dLdz,z_cache)
+        grads[W_str] = dwi + self.reg*self.params[W_str]
+        grads[b_str] = dbi
+      
+      # next backprop steps
+      else:
+        if self.use_dropout:
+          dhi = dropout_backward(dhi,d_cache[i-1])
+
+        if self.use_batchnorm:
+          dhi , dwi, dbi, dgami, dbetai = affine_batchnorm_relu_backward(dhi,h_cache[i-1])
+          grads[gam_str] = dgami
+          grads[beta_str] = dbetai
+        else:
+          dhi , dwi, dbi = affine_relu_backward(dhi,h_cache[i-1])
+        grads[W_str] = dwi + self.reg*self.params[W_str]
+        grads[b_str] = dbi
+      
+    loss += 0.5*self.reg*(sqr_sum)
 
 
     # ================================================================ #
