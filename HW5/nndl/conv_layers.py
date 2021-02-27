@@ -45,14 +45,8 @@ def conv_forward_naive(x, w, b, conv_param):
   #   Store the output as 'out'.
   #   Hint: to pad the array, you can use the function np.pad.
   # ================================================================ #
-  N = x.shape[0]
-  # input size
-  H = x.shape[2]
-  W = x.shape[3]
-  # filter size
-  F = w.shape[0]
-  HH = w.shape[2]
-  WW = w.shape[3]
+  N,_,H,W=x.shape #input size
+  F,_,HH,WW=w.shape #filter size
   
   Hhat = 1+(H + 2*pad - HH) // stride
   What = 1+(W + 2*pad - WW) // stride
@@ -107,13 +101,39 @@ def conv_backward_naive(dout, cache):
   #   Implement the backward pass of a convolutional neural network.
   #   Calculate the gradients: dx, dw, and db.
   # ================================================================ #
+  # preallocations
+  db = np.zeros(b.shape)
+  dw = np.zeros(w.shape)
+  dx_pad = np.zeros(xpad.shape)
+
+  _,_,H,W=x.shape
+  _,_,HH,WW=w.shape
+  
+  Hhat = 1+(H + 2*pad - HH) // stride
+  What = 1+(W + 2*pad - WW) // stride
+
+  # Rotation Implementation --Unsure how to incorporate dilation
+  # db = np.sum(dout,axis=(0,2,3))
+  # dw = np.convolve(xpad,dout)
+  # y_pad= ((0,0), (0,0), (pad,pad), (pad,pad))
+  # # rotating 180deg
+  # w_rot = np.rot90(w,2,axes = (2,3))
+  # dx = np.convolve(np.pad(dout,y_pad,'constant'),w_rot)
 
   db = np.sum(dout,axis=(0,2,3))
-  dw = np.convolve(xpad,dout)
-  y_pad= ((0,0), (0,0), (pad,pad), (pad,pad))
-  # rotating 180deg
-  w_rot = np.rot90(w,2,axes = (2,3))
-  dx = np.convolve(np.pad(dout,y_pad,'constant'),w_rot)
+  for n in np.arange(N):
+    for f in np.arange(F):
+      for i in np.arange(Hhat):
+        for j in np.arange(What):
+          # start of original layer relating to i and j
+          h_i = i*stride 
+          w_j = j*stride
+          # defining the x segment the filter is on
+          x_seg = xpad[n,:,h_i:h_i+HH,w_j:w_j+WW]
+          dw[f,:,:,:] += dout[n,f,i,j]*x_seg
+          dx_pad[n,:,h_i:h_i+HH,w_j:w_j+WW] += dout[n,f,i,j]*w[f,:,:,:] 
+  # unpadding
+  dx = dx_pad[:,:,pad:H+pad,pad:W+pad]
 
   # ================================================================ #
   # END YOUR CODE HERE
@@ -143,6 +163,24 @@ def max_pool_forward_naive(x, pool_param):
   # YOUR CODE HERE:
   #   Implement the max pooling forward pass.
   # ================================================================ #
+  N,C,H,W = x.shape
+  Hp, Wp, stride = [pool_param['pool_height'], pool_param['pool_width'], pool_param['stride']]
+
+  Hhat = 1 + (H - Hp)// stride 
+  What = 1 + (W - Wp)// stride
+
+  out = np.zeros((N,C,Hhat,What))
+
+  for n in np.arange(N):
+    for c in np.arange(C):
+      for i in np.arange(Hhat):
+        for j in np.arange(What):
+          # start of original layer relating to i and j
+          h_i = i*stride 
+          w_j = j*stride
+          # defining the x segment the filter is on
+          x_seg = x[n,c,h_i:h_i+Hp,w_j:w_j+Wp]
+          out[n,c,i,j] = np.max(x_seg)
 
 
   # ================================================================ #
@@ -170,7 +208,26 @@ def max_pool_backward_naive(dout, cache):
   # YOUR CODE HERE:
   #   Implement the max pooling backward pass.
   # ================================================================ #
+  N,C,H,W = x.shape
 
+  Hhat = 1 + (H - pool_height)// stride 
+  What = 1 + (W - pool_width)// stride
+
+  dx = np.zeros(x.shape)
+
+  for n in np.arange(N):
+    for c in np.arange(C):
+      for i in np.arange(Hhat):
+        for j in np.arange(What):
+          # start of original layer relating to i and j
+          h_i = i*stride 
+          w_j = j*stride
+          # defining the x segment the filter is on
+          x_seg = x[n,c,h_i:h_i+pool_height,w_j:w_j+pool_width]
+          # creating indicatior function if x_a > x_b then df/dx_a = 1 OW 0
+          ind = (x_seg == np.max(x_seg)) 
+
+          dx[n,c,h_i:h_i+pool_height,w_j:w_j+pool_width] += ind*dout[n,c,i,j]
 
   # ================================================================ #
   # END YOUR CODE HERE
@@ -209,8 +266,15 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
   #   You may find it useful to use the batchnorm forward pass you 
   #   implemented in HW #4.
   # ================================================================ #
+  N, C, H, W = x.shape
+  x = x.reshape((N*H*W,C))
   
+  out,cache = batchnorm_forward(x, gamma, beta, bn_param)
   
+  # out has shape (N*H*W,C)
+  out = out.T #(C,N*H*W)
+  out = out.reshape(C,N,H,W)
+  out = out.swapaxes(0,1)
 
   # ================================================================ #
   # END YOUR CODE HERE
@@ -241,8 +305,13 @@ def spatial_batchnorm_backward(dout, cache):
   #   You may find it useful to use the batchnorm forward pass you 
   #   implemented in HW #4.
   # ================================================================ #
-  
+  N, C, H, W = dout.shape
+  dout = dout.swapaxes(0,1)
+  dout = dout.reshape((C,N*H*W))
+  dout = dout.T #(N*H*W,C)
 
+  dx, dgamma, dbeta = batchnorm_backward(dout, cache)
+  dx = dx.reshape((N, C, H, W))
   # ================================================================ #
   # END YOUR CODE HERE
   # ================================================================ # 

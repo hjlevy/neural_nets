@@ -60,8 +60,26 @@ class ThreeLayerConvNet(object):
     #         drawn from a Gaussian distribution with zero mean and 
     #         standard deviation given by weight_scale.
     # ================================================================ #
+    C, H, W = input_dim
 
+    # goes through filters with w size (filter num, C, H_filter, W_filter)
+    # for multiple channels 
+ 
+    # conv - relu - pool
+    self.params['W1'] = weight_scale * np.random.randn(num_filters,C,filter_size,filter_size)
+    self.params['b1'] = np.zeros(num_filters)
+    
+    # after pooling w Wp = 2, Hp = 2, stride = 2
+    Hhat = (H-2)//2 + 1
+    What = (W-2)//2 + 1
 
+    # affine - relu
+    self.params['W2'] = weight_scale * np.random.randn(num_filters*Hhat*What, hidden_dim)
+    self.params['b2'] = np.zeros(hidden_dim)
+    
+    # affine - softmax
+    self.params['W3'] = weight_scale * np.random.randn(hidden_dim, num_classes)
+    self.params['b3'] = np.zeros(num_classes)
 
     # ================================================================ #
     # END YOUR CODE HERE
@@ -95,7 +113,9 @@ class ThreeLayerConvNet(object):
     #   Implement the forward pass of the three layer CNN.  Store the output
     #   scores as the variable "scores".
     # ================================================================ #
-    
+    h1, h1_cache= conv_relu_pool_forward(X, W1, b1, conv_param, pool_param)
+    h2, h2_cache= affine_relu_forward(h1,W2,b2)
+    scores, z_cache = affine_forward(h2,W3,b3)
 
     # ================================================================ #
     # END YOUR CODE HERE
@@ -112,9 +132,16 @@ class ThreeLayerConvNet(object):
     #   self.params[k] will be grads[k]).  Store the loss as "loss", and
     #   don't forget to add regularization on ALL weight matrices.
     # ================================================================ #
+    loss, dLdz = softmax_loss(scores,y)
+    loss = loss+0.5*self.reg*(np.sum(W1**2)+np.sum(W2**2)+np.sum(W3**2))
 
+    dh2, grads['W3'], grads['b3'] = affine_backward(dLdz,z_cache)
+    dh1, grads['W2'], grads['b2'] = affine_relu_backward(dh2,h2_cache)
+    dx, grads['W1'], grads['b1'] = conv_relu_pool_backward(dh1,h1_cache)
     
-
+    grads['W3'] += self.reg*W3
+    grads['W2'] += self.reg*W2
+    grads['W1'] += self.reg*W1
     # ================================================================ #
     # END YOUR CODE HERE
     # ================================================================ #
